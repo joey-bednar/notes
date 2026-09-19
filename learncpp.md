@@ -756,7 +756,7 @@ unsigned int u {4294967295}; // largest 32-bit unsigned int
 static_cast<int>(u) // implementation defined prior to C++20, -1 as of C++20
 ```
 
-# Section 5: Constants and Strings
+# 5: Constants and Strings
 
 ## 5.1 Constant variables
 
@@ -882,3 +882,591 @@ Some compile-time constants cannot be used in compile-time features.
 ```c
 constexpr int x {expr}; // expr must be evaluated at compile time
 ```
+
+## 5.8 & 5.9 Intro to std::string_view
+
+```c
+using namespace std::string_literals;      // access the s suffix
+using namespace std::string_view_literals; // access the sv suffix
+
+std::cout << "foo\n";   // no suffix is a C-style string literal
+std::cout << "goo\n"s;  // s suffix is a std::string literal
+std::cout << "moo\n"sv; // sv suffix is a std::string_view literal
+```
+
+Owners and viewers
+
+Analogy: need to paint picture of bicycle
+- Option 1: buy bike
+    - Pros: get to modify it
+    - Cons: Buy, manage, dispose of later
+- Option 2: look out window, paint neighbors bike
+    - Pros: No need to buy, manage, dispose of
+    - Cons: Can't modify
+
+`std::string`: Owner
+- Makes copy of temporary initializer into memory
+- Able to modify freely
+
+`std::string_view`: Viewer
+- If object being viewed is destroyed or modified, the viewer exhibits undefined behavior
+- Often used as read-only function parameter
+
+Prefer `std::string_view` over `const std::string&` (explained in later chapters)
+
+Many ways in which a `std::string_view` points to a `std::string` that is destroyed leading
+to undefined behavior.
+
+View Modification Functions
+
+Like a window, you can close the curtains to affect which parts of the bike you see.
+```c
+std::string_view s {"test"};
+s.remove_prefix(1) // est
+s.remove_suffix(2) // es
+s = "test" // reset to test
+```
+
+Because substrings can be viewed, `std::string_view` may or may not be null terminated.
+C-style strings and `std::string`s are always null-terminated.
+
+# 6: Operators
+
+## 6.1 Operator precedence
+
+The following code is ambiguous. Operator precedence determines the order of operations. 
+However, operands, function arguments, and subexpressions may be evaluated in any order.
+`clang` is left->right, `gcc` is right->left.
+
+```c
+int getValue() {
+    std::cout << "Enter an int: ";
+    int x{};
+    std::cin >> x;
+    return x;
+}
+void printCalc(int x,int y,int z) {
+    std::cout << x + (y*z);
+}
+int main() {
+    printCalc(getValue(),getValue(),getValue())
+    return 0;
+}
+```
+
+## 6.3 Remainder and Exponentiation
+
+Exponentiation done with:
+
+```c
+double x{std::pow(3.0,4.0)};
+```
+parameters and return type are `double`. Rounding errors in floating point numbers
+will cause errors even if passing in integers or whole numbers.
+
+When doing integer exponentiation, write your own function using the "exponentiation by squaring"
+algorithm for efficiency.
+
+```c
+#include <cassert> // for assert
+#include <cstdint> // for std::int64_t
+#include <iostream>
+
+// note: exp must be non-negative
+// note: does not perform range/overflow checking, use with caution
+constexpr std::int64_t powint(std::int64_t base, int exp)
+{
+	assert(exp >= 0 && "powint: exp parameter has negative value");
+
+	// Handle 0 case
+	if (base == 0)
+		return (exp == 0) ? 1 : 0;
+
+	std::int64_t result{ 1 };
+	while (exp > 0)
+	{
+		if (exp & 1)  // if exp is odd
+			result *= base;
+		exp /= 2;
+		base *= base;
+	}
+
+	return result;
+}
+```
+
+To avoid integer overflow, use this safer but slower version:
+```c
+#include <cassert> // for assert
+#include <cstdint> // for std::int64_t
+#include <iostream>
+#include <limits> // for std::numeric_limits
+
+// A safer (but slower) version of powint() that checks for overflow
+// note: exp must be non-negative
+// Returns std::numeric_limits<std::int64_t>::max() if overflow occurs
+constexpr std::int64_t powint_safe(std::int64_t base, int exp)
+{
+    assert(exp >= 0 && "powint_safe: exp parameter has negative value");
+
+    // Handle 0 case
+    if (base == 0)
+        return (exp == 0) ? 1 : 0;
+
+    std::int64_t result { 1 };
+
+    // To make the range checks easier, we'll ensure base is positive
+    // We'll flip the result at the end if needed
+    bool negativeResult{ false };
+
+    if (base < 0)
+    {
+        base = -base;
+        negativeResult = (exp & 1);
+    }
+
+    while (exp > 0)
+    {
+        if (exp & 1) // if exp is odd
+        {
+            // Check if result will overflow when multiplied by base
+            if (result > std::numeric_limits<std::int64_t>::max() / base)
+            {
+                std::cerr << "powint_safe(): result overflowed\n";
+                return std::numeric_limits<std::int64_t>::max();
+            }
+
+            result *= base;
+        }
+
+        exp /= 2;
+
+        // If we're done, get out here
+        if (exp <= 0)
+            break;
+
+        // The following only needs to execute if we're going to iterate again
+
+        // Check if base will overflow when multiplied by base
+        if (base > std::numeric_limits<std::int64_t>::max() / base)
+        {
+            std::cerr << "powint_safe(): base overflowed\n";
+            return std::numeric_limits<std::int64_t>::max();
+        }
+
+        base *= base;
+    }
+
+    if (negativeResult)
+        return -result;
+
+    return result;
+}
+```
+
+## 6.4: Increment and decrement
+
+The following output ambiguous:
+```c
+int x{5};
+int value { add(x,++x) };
+```
+
+Side effect: "Has some observable effect beyond producing a return value.
+Common examples include changing the value of objects, doing input/output,
+updating GUI, etc."
+
+Unspecified behavior (compiler dependent):
+```c
+x + ++x
+```
+
+Using multiple side-effects is the source of many errors. Avoid using multiple
+side effects in one given statement.
+
+## 6.5: Comma Operator
+
+Evaluates x, evaluates y, returns value of y
+```c
+int x{1};
+int y{2};
+std::cout << (++x,++y); // 3
+```
+
+```c
+z = (a,b); // evaluate (a,b), get result of b, assign value to z
+z = a,b; // evaluates as "(z=a),b" so z is assigned value of a, b is evaluated and discarded
+```
+
+Comma has lowest precedence and gets evaluated last.
+
+Avoid using comma operator.
+
+## 6.6: Conditional operator
+
+```c
+condition ? true : false;
+```
+
+To avoid operation precedence errors:
+- parenthesize the entire conditional operation when used in a compound expression
+- parenthesize the condition if it contains other operators
+
+## 6.7: Relational operator
+
+Non-literal floating point equality should be avoided. Use approximate comparisons instead.
+
+```c
+// C++14/17/20 version
+#include <algorithm> // for std::max
+#include <iostream>
+
+// Our own constexpr implementation of std::abs (for use in C++14/17/20)
+// In C++23, use std::abs
+// constAbs() can be called like a normal function, but can handle different types of values (e.g. int, double, etc...)
+template <typename T>
+constexpr T constAbs(T x)
+{
+    return (x < 0 ? -x : x);
+}
+
+// Return true if the difference between a and b is within epsilon percent of the larger of a and b
+constexpr bool approximatelyEqualRel(double a, double b, double relEpsilon)
+{
+    return (constAbs(a - b) <= (std::max(constAbs(a), constAbs(b)) * relEpsilon));
+}
+
+// Return true if the difference between a and b is less than or equal to absEpsilon, or within relEpsilon percent of the larger of a and b
+constexpr bool approximatelyEqualAbsRel(double a, double b, double absEpsilon, double relEpsilon)
+{
+    // Check if the numbers are really close -- needed when comparing numbers near zero.
+    if (constAbs(a - b) <= absEpsilon)
+        return true;
+
+    // Otherwise fall back to Knuth's algorithm
+    return approximatelyEqualRel(a, b, relEpsilon);
+}
+
+int main()
+{
+    // a is really close to 1.0, but has rounding errors
+    constexpr double a{ 0.1 + 0.1 + 0.1 + 0.1 + 0.1 + 0.1 + 0.1 + 0.1 + 0.1 + 0.1 };
+
+    constexpr double relEps { 1e-8 };
+    constexpr double absEps { 1e-12 };
+
+    std::cout << std::boolalpha; // print true or false instead of 1 or 0
+
+    constexpr bool same { approximatelyEqualAbsRel(a, 1.0, absEps, relEps) };
+    std::cout << same << '\n';
+
+    return 0;
+}
+```
+
+## 6.8: Logical Operators
+
+Short circuit evaluation
+
+# O: Bit manipulation
+
+## O.1: Bit flags and bit manipulation
+
+```c
+#include <bitset>
+// bit position 76543210
+// bits         00000101
+std::bitset<8> b { 0b0000'0101 };
+
+b.set(3); //   0000 1101
+b.flip(4); //  0001 1101
+b.reset(4); // 0000 1101
+std::cout << bits; // prints 00001101
+std::cout << bits.test(3); // prints 1
+```
+
+## O.2: Bitwise operators
+
+```c
+x << n; // shift left by n positions, new bits are 0
+```
+
+`operator~` and `operator<<` are width sensitive. Bitwise operators will promote operands with narrower integral types to `int` or `unsigned int`.
+Avoid bit shifting integral types smaller than `int`.
+
+```c
+std::uint8_t c { 0b00001111 };
+
+std::cout << std::bitset<32>(~c) << '\n';     // incorrect: prints 11111111111111111111111111110000
+std::cout << std::bitset<32>(c << 6) << '\n'; // incorrect: prints 0000000000000000001111000000
+std::uint8_t cneg { ~c };                     // error: narrowing conversion from unsigned int to std::uint8_t
+c = ~c;                                       // possible warning: narrowing conversion from unsigned int to std::uint8_t
+
+//////////////////////////////////////////
+
+std::uint8_t c { 0b00001111 };
+
+std::cout << std::bitset<32>(static_cast<std::uint8_t>(~c)) << '\n';     // correct: prints 00000000000000000000000011110000
+std::cout << std::bitset<32>(static_cast<std::uint8_t>(c << 6)) << '\n'; // correct: prints 0000000000000000000011000000
+std::uint8_t cneg { static_cast<std::uint8_t>(~c) };                     // compiles
+c = static_cast<std::uint8_t>(~c);                                       // no warning
+```
+
+## O.4: Converting integers between binary and decimal
+
+Decimal to binary:
+148:
+128/2=74r0
+74/2=37r0
+37/2=18r1
+18/2=9r0
+9/2=4r1
+4/2=2r0
+2/2=1r0
+1/2=0r1
+-> 1001 0100
+
+148:
+148>=128? yes, 148-128=20
+20>=64? no
+20>=32? no
+20>=16? yes, 20-16=4
+4>=8? no
+4>=4? yes, 4-4=0, (rest of bits must be zero)
+0>=2? no
+0>=1? no
+-> 1001 0100
+
+Twos complement:
+- first digit is signed bit
+- *-1: flip bits and add one
+
+twos complement to decimal:
+- if negative number, flip bits and add one
+- convert to decimal normally
+
+Floating point: https://tfinley.net/csarch-notes/2000/floating
+
+# 7: Scope, duration, and linkage
+
+## 7.2: User defined namespaces
+
+```c
+namespace Foo {
+    int f() {
+        return 0;
+    }
+}
+
+Foo::f();
+```
+
+```c
+::f() // call f() in global namespace
+```
+
+```c
+namespace A {
+    namespace B {
+
+    }
+}
+
+namespace C::D {
+
+}
+
+namespace Active = C::D; // Active refers to C::D
+```
+
+## 7.3: Local variables
+
+Nested scope ends after {}
+```c
+int x {5};
+int y {1};
+{
+int x {4}; // this x refers to a different object than the previous x (name shadowing)
+int z=x+y;
+}
+```
+
+## 7.4: Global variables
+
+Globals must be initialized.
+
+## 7.6-7: Internal/External Linkage
+
+Internal linkage
+```c
+static int x{};
+const int y{1};
+constexpr int z{2};
+
+static int add(int x, int y) {}
+```
+
+External Linkage
+```c
+int x{};
+extern const int y{};
+extern constexpr z{};
+int add(int x,int y) {}
+```
+
+## 7.9: Inline functions
+
+Don't use inline anymore. Compiler optimizes for you and ignores this.
+In modern C++ inline has evolved to mean "function can be duplicated".
+
+Useful for header-only libraries
+
+## 7.10: TODO
+## 7.11: TODO
+## 7.12: TODO
+## 7.13: TODO
+## 7.14: TODO
+
+# 8: Control Flow
+
+## 8.4: Constexpr if
+
+Use constexpr if the conditional is constexpr (C++17):
+```c
+constexpr double g {9.8};
+if constexpr (g == 9.8) {
+    std::cout << "Earth";
+}
+```
+
+## 8.5: Switch statement
+
+```c
+switch (x) {
+case 1:
+    std::cout << "one";
+    break;
+case 2:
+    std::cout << "two";
+    break;
+case 3:
+    [[fallthrough]]
+case 4:
+    [[fallthrough]]
+case 5:
+    std::cout << "three to five";
+    break;
+default:
+    std::cout << "idk";
+    break;
+}
+```
+
+## 8.7: Goto
+
+```c
+int main() {
+    double x{};
+tryAgain:
+    std::cout << "Enter positive number";
+    std::cin >> x;
+    if(x < 0.0) {
+        goto tryAgain;
+    }
+}
+```
+
+## 8.9: Do while
+
+```c
+do {
+std::cout << "hi";
+} while(x > 5);
+```
+
+## 8.12 Halts
+
+`std::exit()`:      Normal exit of the program (happens at end of main())
+`std::atexit()`:    Runs when program exits.
+`std::abort()`:     Abnormal termination due to runtime error. Exits with no cleanup.
+                    Failing `static_assert` calls `std::abort` implicitly.
+`std::terminate()`: Used for exceptions. Often called implicitly. Calls `std::abort()`.
+
+```c
+void cleanup() {
+
+}
+int main() {
+    std::atexit(cleanup)
+}
+```
+
+## 8.13: Intro to RNG
+
+Basic example PRNG (pseudo-rng):
+```c
+unsigned int LCG16() {
+    static unsigned int state {0};
+    s_state = 8253729 * s_state + 2396403;
+    return s_state % 32768;
+}
+```
+
+Use more state variables (seeding).
+
+Theoretical max number of unique sequences = number of bits in PRNG state.
+In practice = number of unique seeds the program using the PRNG can provide.
+
+Providing not enough bits of quality seed data = "underseeding"
+
+Ideal seed:
+- seed should contain >= bits as the state of the PRNG
+- each bit in the seed should be independently randomized
+- mix of 0s and 1s across all bits
+- every bit changes, "stuck bits" provide no value
+- low correlation with previously generated seeds
+
+Ideal PRNG:
+- method by which next number is generated is not predictable
+- good dimensional distribution of numbers
+- high period for all seeds
+- efficient
+
+## 8.14: Mersenne Twister
+
+`mt19937`: 32-bit unsigned int
+`mt19937_64`: 64-bit unsigned int
+
+Not always secure: Predictable results after seeing 624 numbers.
+
+```c
+#include <iostream>
+#include <random>
+std::mt19937 mt{};
+int main() {
+std::cout << mt();
+}
+```
+
+```c
+#include <iostream>
+#include <random>
+
+int main() {
+
+    std::mt19937 mt{}; // don't seed
+    std::mt19937 mt{ static_cast<std::mt19937::result_type>(std::chrono::steady_clock::now().time_since_epoch().count()) }; // seed with system clock
+    std::mt19937 mt{ std::random_device{}() }; // seed with /dev/random
+
+    std::random_device rd{}; // or (correctly) seed with all 32 bits
+    std::seed_seq ss{ rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd() };
+    std::mt19937 mt{ ss };
+
+    std::uniform_int_distribution die6{1,6};
+    std::cout << "Random die roll: " << die6(mt);
+}
+```
+
+
+
+
